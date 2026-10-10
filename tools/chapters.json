@@ -1,0 +1,98 @@
+[
+  {
+    "id": "01",
+    "path": "01-file-descriptor",
+    "title": "File Descriptor",
+    "topics": "プロセスとfd table、0/1/2、open/close/read/write"
+  },
+  {
+    "id": "02",
+    "path": "02-raw-file-io",
+    "title": "Raw File I/O",
+    "topics": "partial read/write、EOF、EINTR、error union"
+  },
+  {
+    "id": "03",
+    "path": "03-blocking-tcp",
+    "title": "Blocking TCP",
+    "topics": "TCP byte stream、socket lifecycle、blocking"
+  },
+  {
+    "id": "04",
+    "path": "04-nonblocking-tcp",
+    "title": "Non-blocking TCP",
+    "topics": "O_NONBLOCK、EAGAIN/EWOULDBLOCK、busy loop"
+  },
+  {
+    "id": "05",
+    "path": "05-poll",
+    "title": "poll",
+    "topics": "pollfd、POLLIN/POLLOUT、O(n) scan"
+  },
+  {
+    "id": "06",
+    "path": "06-epoll",
+    "title": "epoll Fundamentals",
+    "topics": "interest list、ready list、LT/ET、IN/OUT/ERR/HUP"
+  },
+  {
+    "id": "07",
+    "path": "07-epoll-echo-server",
+    "title": "epoll Echo Server",
+    "topics": "connection state、pending write、event dispatch"
+  },
+  {
+    "id": "08",
+    "path": "08-epoll-chat-server",
+    "title": "epoll Chat Server",
+    "topics": "backpressure、slow client、broadcast、lifecycle"
+  },
+  {
+    "id": "09",
+    "path": "09-io-uring-basics",
+    "title": "io_uring Fundamentals",
+    "topics": "SQ/CQ、SQE/CQE、mmap、submission/completion"
+  },
+  {
+    "id": "10",
+    "path": "10-io-uring-file-io",
+    "title": "io_uring File I/O",
+    "topics": "非同期read、offset、buffer lifetime、file copier"
+  },
+  {
+    "id": "11",
+    "path": "11-io-uring-network",
+    "title": "io_uring Network",
+    "topics": "accept/recv/send completion、operation lifecycle"
+  },
+  {
+    "id": "12",
+    "path": "12-event-loop",
+    "title": "Event Loop from Scratch",
+    "topics": "register/wait/dispatch/wake、公平性、状態機械"
+  },
+  {
+    "id": "13",
+    "path": "13-std-io",
+    "title": "Zig std.Io",
+    "topics": "Io依存注入、Threaded、init.io、backend"
+  },
+  {
+    "id": "14",
+    "path": "14-std-io-async",
+    "title": "std.Io Async / Concurrency",
+    "topics": "Future、async/concurrent、cancel、Group、structured concurrency"
+  },
+  {
+    "id": "15",
+    "path": "15-reactor-proactor",
+    "title": "Reactor vs Proactor",
+    "topics": "同一仕様の比較、comptime backend"
+  },
+  {
+    "id": "16",
+    "path": "16-benchmark",
+    "title": "Benchmark",
+    "topics": "throughput、p50/p95/p99、CPU/RSS、syscall、context switch"
+  }
+]

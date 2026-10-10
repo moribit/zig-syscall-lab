@@ -1,0 +1,15 @@
+# Zig build caches and installed artifacts (root and chapters)
+.zig-cache/
+zig-cache/
+zig-out/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Local syscall observation logs
+trace*.log
+
+# macOS metadata
+.DS_Store
+._*
