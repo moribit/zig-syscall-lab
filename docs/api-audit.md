@@ -7,7 +7,7 @@ Linux APIの実行検証とは区別してください。以下のlineはこの�
 ```sh
 zig version
 zig env
-rg -n 'pub fn|pub const' <std_dir>/Io.zig
+# zig envのstd_dirを調べ、その場所のIo.zigをeditorで開く
 ```
 
 ## raw I/O: wrapperとsyscallを区別
@@ -30,7 +30,7 @@ rg -n 'pub fn|pub const' <std_dir>/Io.zig
 
 この版では従来の`std.posix.write/close/socket/epoll_*`を前提にしません。
 Linux syscallを直に使う章は`std.os.linux`を読み、error変換も学習者が設計します。
-libcをlinkする設定はbuildにありません。
+Linux生syscall章はlibcを経由しない入口を読みます。自分のCLIでも必要性を調べずに-lcを加えないでください。
 
 ## ring wrapperの位置
 
@@ -66,13 +66,7 @@ SQE/CQE layoutは`os/linux/io_uring.zig`とlinux.zigのexportを追います。
 | Io.sleep(io, Duration, Clock) | Io.zig:2599 | Cancelable!void、cancel pointの実験に使う |
 | Thread.getCurrentId() | Thread.zig:279 | thread観測。completion順を保証するものではない |
 
-数行のAPI断片（接続loopの解答ではありません）:
-
-```zig
-const io = init.io; // main(init: std.process.Init)の中
-var future = io.async(task, .{io});
-try future.await(io); // taskがerror unionを返す場合
-```
+API名を手掛かりに宣言を探し、呼出側の引数とerror処理を自分で組み立てます。
 
 `Io.async`の単独Futureと`Group.async`の契約は同じではありません。
 Groupのasync taskはawait/cancelまで実行されないこともあります。
@@ -90,12 +84,9 @@ Zig言語のallocationは暗黙のGC任せではありません。ただしstdli
 allocatorの供給元、backendの寿命、実際のallocation箇所をsourceで追います。
 error unionのtry/catch、defer/errdeferは失敗時の所有権を明示するための道具です。
 
-宣言の存在だけを確認する（章の解答を含まない）補助probe:
+## 宣言を自分で探す
 
-```sh
-zig test tools/api-check.zig
-zig test tools/api-check.zig -target x86_64-linux -fno-emit-bin
-zig test tools/api-check.zig -target aarch64-linux -fno-emit-bin
-```
-
-Linuxの2コマンドはcompileだけで、syscallの動作を実行検証するものではありません。
+この索引のline番号は配布sourceの位置です。引数を埋めた実装例は掲載しません。
+editorで各関数名を検索し、引数型、返却型、error setをメモします。
+Linux man pageのC APIとstdlibの生syscall・wrapperを比較してください。
+調べた宣言を使って自分のmain.zigへ1操作ずつ書き、コンパイラが指摘した型とsourceを照合します。

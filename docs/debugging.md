@@ -1,11 +1,14 @@
 # syscallを観察する
 
-実装前に「fd・要求長・返却値・待機条件」の4列を書きます。実装後はLinuxで以下を使います。
+実装前に「fd・要求長・返却値・待機条件」の4列を書きます。普段はzig run main.zigで修正を繰り返します。
+観測時はLinuxでzig build-exe main.zigを使い、生成binaryだけを対象にします。
+zig runをtraceするとcompiler/linkerのsyscallも混ざるためです。
 
 ```sh
-strace -f -tt -T -o trace.log ./zig-out/bin/lab-07
-strace -f -c ./zig-out/bin/lab-07
-strace -f -e trace=network,read,write,close,epoll_ctl,epoll_wait ./zig-out/bin/lab-07
+zig build-exe main.zig
+strace -f -tt -T -o trace.log ./main
+strace -f -c ./main
+strace -f -e trace=network,read,write,close,epoll_ctl,epoll_wait ./main
 ss -tnp
 ls -l /proc/<pid>/fd
 pidstat -p <pid> 1
@@ -22,8 +25,9 @@ ET実験で永久待機しそうなら外部timeoutを用意します。traceは
 SIGPIPE、EOF、RST、half-closeは別々に試します。EOF後にもpending writeがある設計を説明してください。
 
 ```sh
-perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./zig-out/bin/lab-07
-/usr/bin/time -v ./zig-out/bin/lab-07
+zig build-exe -O ReleaseFast main.zig
+perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./main
+/usr/bin/time -v ./main
 ```
 
 perfの権限・VM counters・kernel設定によって測れない項目はN/Aと理由を記録します。
@@ -36,4 +40,8 @@ macOSのdtruss等はLinux syscallと一致せず、この教材のLinux traceの
 | 自分で記入 | | | | |
 
 memory leakは終了時allocator検査と長時間RSSの両方、fd leakは/proc/pid/fdの増減で確認します。
-短いI/Oを確実に検査するには偽backendから1 byte、EAGAIN、EINTR、EOFを注入するunit testも使います。
+短いI/Oが自然に起きない場合、実験用に1 byteずつ進める経路や失敗注入を自分で書いても構いません。
+先にhelperを作るのでなく、正常系を理解してから境界状態を紙とlogで検証します。
+
+コンパイラエラーではexpected/found、sliceとpointer、integer cast、alignment、error unionとoptionalを読みます。
+エラーを隠すhelperは使わず、stdlib sourceの宣言と照合して自分のmain.zigを直します。

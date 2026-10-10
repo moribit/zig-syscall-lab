@@ -15,8 +15,9 @@ poll/epollはreadinessを返しアプリが転送を行います。io_uringは�
 
 ## 実験環境
 
-基本はLinux x86_64/aarch64。epoll/eventfd/io_uringとstrace実験はLinux限定です。
-macOSではstarterのbuildと文章読解、Threadedの実験ができますがLinux syscall章はLinuxで実行します。
+標準はM2 MacBook Air → OrbStack → Arch Linux ARM64です。[環境手順](arch-orbstack.md)。
+Linux x86_64も対象です。epoll/eventfd/io_uringとstrace実験はLinux限定です。
+macOSでは文章読解やstd.Io.Threadedの実験も可能ですが、Linux syscall章の編集・コンパイル・観測はLinux内に揃えます。
 Lima/UTMなどのVMはkernelを選びやすく、remote Linuxは実機条件を測れます。
 Docker/PodmanはLinux kernelを共有し、seccompによるio_uring_setup/enter制限やfd上限があります。
 

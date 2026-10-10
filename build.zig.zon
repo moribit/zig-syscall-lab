@@ -1,8 +1,0 @@
-.{
-    .name = .zig_io_lab,
-    .fingerprint = 0xc4f2b3087c467e09,
-    .version = "0.1.0",
-    .minimum_zig_version = "0.17.0",
-    .dependencies = .{},
-    .paths = .{ "" },
-}

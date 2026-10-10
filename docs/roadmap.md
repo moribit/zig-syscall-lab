@@ -11,6 +11,8 @@ fd → raw file I/O → blocking TCP → non-blocking TCP
 12: 状態機械・wake・公平性。09–11: completionとin-flight ownership。
 13–14: 依存注入とtask scope。15–16: 抽象化の限界と測定。
 
-各段階の成果物は自作source、仕様test、trace、予想と差のnotesです。
+各章でmain.zigを自分で作り、zig runで修正し、zig build-exe後のbinaryをstraceします。
+各段階の成果物は自作source、手動実験の記録、trace、予想と差のnotesです。
+序盤は単一file。後半で重複に気付いてからfile分割やbackend抽象化を検討します。
 前章のbuffer lifetimeやpartial I/Oが曖昧なら、先へ進む前に1 byte実験へ戻ります。
 12という番号が09より後に見えても、08の「次章への問い」から12へ進んでください。

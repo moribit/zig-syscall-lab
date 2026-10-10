@@ -1,5 +1,15 @@
 # Chapter 11: io_uring Network
 
+## この章で作るもの
+
+自分で以下のファイルを作成します。
+
+```text
+main.zig
+```
+
+この教材からソースコードは提供しません。
+
 ## この章で学ぶこと
 
 accept/recv/send completion、operation lifecycle。
@@ -26,18 +36,62 @@ accept completionは新client fd、recv/send completionは転送結果です。o
 `std.os.linux.IoUring.accept/recv/send/cancel（確認用）`。正確な宣言は[API確認ノート](../docs/api-audit.md)とZig 0.17.0同梱sourceを参照。
 生`std.os.linux`の返却値はerror unionではありません。`linux.errno(rc)`で成功を判定してからfd/長さへ変換します。
 
+## stdlibを読む
+
+`zig version`が0.17.0であることを確認し、`zig env`のstd_dirをeditorで開きます。
+今回読むsource: `os/linux/IoUring.zigのaccept/recv/send/cancel`。
+関数の型、error set、Linux固有か、libcを経由するか、syscallへどう降りるかを調べてください。
+宣言の引数を教材から埋めず、pointer/slice/alignmentをsourceから判断します。
+[API確認ノート](../docs/api-audit.md)はsourceを探す索引です。
+
+## man pageを読む
+
+実装前にLinuxで以下を読みます。
+
+```sh
+man 7 io_uring
+man 2 accept
+man 2 recv
+man 2 send
+```
+
+戻り値、0の意味、失敗時のerrno、EINTR、短い転送または待機条件を確認します。
+manのC APIの-1/errnoとZig生syscallの返却値を混同しないでください。
+章固有のflags・resource寿命も確認し、sourceのwrapperが何を変換するか説明します。
+ページが未導入なら[一次資料](../docs/references.md)のmanリンクも参照してください。
+
 ## 実装課題
 
 単発accept・recv・sendのecho。最初は1接続、次に複数接続とoperation tokenを導入する。
 
 ## 実装手順
 
-1. 入出力契約と所有権を紙に書き、syscall順を予想する。
-2. accept submit→CQEでclient fd取得→recv→send→partial send残量→次recv。切断時はin-flightを回収してからstate解放。
-3. 正常系を動かした後、短い転送・切断・失敗を加える。
-4. `test/contract.zig`のTODOへ自分の状態管理のunit testを追加する。
+1. main.zigへsocket/bind/listenと自作ringを手書きする。
+2. 単発acceptをsubmitし、CQEから新しいclient fdを得る。
+3. recv完了までbufferを保持し、そのbyteをsendへ渡す。
+4. partial sendの残量を再要求してから次のrecvへ進む。
+5. connection ID、世代、operation種をtokenとして設計する。
+6. 複数接続へ広げ、切断・cancelと遅れて来るcompletionのcleanupを確かめる。
 
-starterは未実装です。`implemented`をtrueにするだけでは完了ではありません。
+## 実行
+
+前章と同様に、自分でmain.zigを作成してください。まず単一fileで書きます。
+
+```sh
+touch main.zig
+$EDITOR main.zig
+zig run main.zig
+```
+
+$EDITORは事前に設定したeditor名です（例: nvim）。コンパイラエラーも教材の一部です。
+型、error union、optional、integer cast、pointer、alignment、sliceの要求を読み、修正して再実行します。
+引数がある課題は`zig run main.zig -- 引数`で渡します。
+
+## 手動で確認
+
+Terminal Aで`zig run main.zig`、別terminalで`nc 127.0.0.1 9000`を複数起動。
+idle、echo、half-close、再接続を試します。転送中にclientを切断し、残ったoperationのcompletionを回収するまで
+bufferを解放しないことをlogとownership図で確かめます。
 
 ## 観察ポイント
 
@@ -46,17 +100,18 @@ socket read/writeがtraceに出なくてもoperationはkernel内で行われる�
 
 ## straceで確認
 
-章ディレクトリでLinux上から実行します。
+普段は`zig run main.zig`、観察時は先にbinaryを生成します。
 
 ```sh
-zig build
-strace -f -tt -T -o trace.log ./zig-out/bin/lab-11
-strace -f -c ./zig-out/bin/lab-11
+zig build-exe main.zig
+strace -f -tt -T -o trace.log ./main
+strace -f -c ./main
 ```
 
-serverは別terminalでclientを接続し、終了後の集計を読みます。cat/cp章はCLI引数を末尾に付けます。
+引数がある課題は`./main`の後に付けます。serverは別terminalでclientを接続し、終了後の集計を読みます。
+`zig run`自体をtraceするとcompilerとlinkerのsyscallが混ざるため、学習対象binaryだけを観測します。
 どのsyscallが呼ばれたか、何回か、どこでblockingしたかを予想と比較してください。
-ランタイム初期化のsyscallと自分の処理を区別します。[観察手順](../docs/debugging.md)。
+program初期化と自分の処理の違いも調べます。[観察手順](../docs/debugging.md)。
 
 ## よくある失敗
 
@@ -64,18 +119,39 @@ CQEをfdだけで識別／同一bufferへ複数recv／cancel完了と対象opera
 
 ## ヒント
 
+### Hint 1
+
+まず上のman pageで操作の契約を調べ、1 fd・1 byte・1 operationへ縮小します。
+
+<details>
+<summary>Hint 2</summary>
+
+調べるsource: `os/linux/IoUring.zigのaccept/recv/send/cancel`。API名は「Zigからどう見えるか」を参照し、宣言を探します。
+
+</details>
+
+<details>
+<summary>Hint 3</summary>
+
 connection ID、世代、operation種をuser_dataに符号化する。pointerを使う場合はalignmentと寿命を文書化する。
-答えのloopは用意していません。困ったら1 fd、1 byte、1 operationに縮小します。
+関数シグネチャと成功/失敗時の状態をsourceで確認し、自分の所有権の図と照合してください。
+
+</details>
 
 ## 完了条件
 
-tools/check.py echo --multiと切断時in-flight試験が通る。
-`zig build test`は未実装時SKIP。実装後はSKIPを残さず自作unit testと`test/README.md`の挙動検査を実行します。
+複数echoと切断時のin-flight回収を確認し、partial sendとcancelの所有権を説明できる。
+コードとnotes.mdへ入力・予想・実測・差の理由を残します。コンパイル成功だけを学習完了にはしません。
 
 ## 発展課題
 
 multishot acceptをfeature probe後に試し、CQE F_MOREと最終完了の意味を調べる。
-別runで`perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./zig-out/bin/lab-11`も試します。
+必要なら別runで生成binaryを測定します。
+
+```sh
+zig build-exe -O ReleaseFast main.zig
+perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./main
+```
 
 ## 次章への問い
 

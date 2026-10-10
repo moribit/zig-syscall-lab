@@ -1,5 +1,15 @@
 # Chapter 09: io_uring Fundamentals
 
+## この章で作るもの
+
+自分で以下のファイルを作成します。
+
+```text
+main.zig
+```
+
+この教材からソースコードは提供しません。 単一fileのままSQ/CQとmappingを見える形で扱い、helperへの分離は後で行います。
+
 ## この章で学ぶこと
 
 SQ/CQ、SQE/CQE、mmap、submission/completion。
@@ -26,18 +36,65 @@ setupはring fdとlayout情報を返し、mmapで共有領域をuserspaceへ見�
 `std.os.linux.io_uring_* / io_uring_params / io_uring_sqe / io_uring_cqe`。正確な宣言は[API確認ノート](../docs/api-audit.md)とZig 0.17.0同梱sourceを参照。
 生`std.os.linux`の返却値はerror unionではありません。`linux.errno(rc)`で成功を判定してからfd/長さへ変換します。
 
+## stdlibを読む
+
+`zig version`が0.17.0であることを確認し、`zig env`のstd_dirをeditorで開きます。
+今回読むsource: `os/linux.zig、os/linux/io_uring.zig、os/linux/IoUring.zig`。
+関数の型、error set、Linux固有か、libcを経由するか、syscallへどう降りるかを調べてください。
+宣言の引数を教材から埋めず、pointer/slice/alignmentをsourceから判断します。
+[API確認ノート](../docs/api-audit.md)はsourceを探す索引です。
+
+## man pageを読む
+
+実装前にLinuxで以下を読みます。
+
+```sh
+man 7 io_uring
+man 2 io_uring_setup
+man 2 io_uring_enter
+man 2 mmap
+```
+
+戻り値、0の意味、失敗時のerrno、EINTR、短い転送または待機条件を確認します。
+manのC APIの-1/errnoとZig生syscallの返却値を混同しないでください。
+章固有のflags・resource寿命も確認し、sourceのwrapperが何を変換するか説明します。
+ページが未導入なら[一次資料](../docs/references.md)のmanリンクも参照してください。
+
 ## 実装課題
 
 liburingなしでraw setup/mmapからNOPを1件送る。user_data=42のCQEを回収し、ring headを進める。
 
 ## 実装手順
 
-1. 入出力契約と所有権を紙に書き、syscall順を予想する。
-2. paramsを初期化→setup→返却offsetからmap→SQE準備→SQ array→tail publish→enter→CQ acquire→res確認→head更新→unmap。
-3. 正常系を動かした後、短い転送・切断・失敗を加える。
-4. `test/contract.zig`のTODOへ自分の状態管理のunit testを追加する。
+1. main.zig一つでparamsとmapping、SQ/CQのpointerが見えるように書く。
+2. paramsを初期化しio_uring_setupの成功/errnoを区別する。
+3. 返却offsetから必要長を計算し、SINGLE_MMAPの分岐とSQE別mappingを実装する。
+4. NOPのSQEを準備し、SQ arrayへindexを入れる。
+5. entry初期化後にtailをrelease publishし、enterでsubmitする。
+6. CQ tailをacquireで読み、user_data=42とres=0を確認する。
+7. CQ headを進め、全mappingとring fdを解放する。
+8. capacity=4の紙上ringで満杯とu32 wraparoundを検討する。
 
-starterは未実装です。`implemented`をtrueにするだけでは完了ではありません。
+## 実行
+
+前章と同様に、自分でmain.zigを作成してください。まず単一fileで書きます。
+
+```sh
+touch main.zig
+$EDITOR main.zig
+zig run main.zig
+```
+
+$EDITORは事前に設定したeditor名です（例: nvim）。コンパイラエラーも教材の一部です。
+型、error union、optional、integer cast、pointer、alignment、sliceの要求を読み、修正して再実行します。
+引数がある課題は`zig run main.zig -- 引数`で渡します。
+
+## 手動で確認
+
+NOPのuser_data、res、head/tailをstderrへ記録して1件の進捗を追います。
+利用不可のkernelではsetupのerrnoと環境条件を記録します。
+紙上ringで空・満杯・wraparoundを確認後、容量を小さくして複数NOPをsubmitします。
+CQEを消費しない場合の状態を観察し、上書きを防ぐ条件を説明します。
 
 ## 観察ポイント
 
@@ -46,17 +103,18 @@ setup返却値・SQ/CQ offset・entries/mask・head/tailを記録。CQEを消費
 
 ## straceで確認
 
-章ディレクトリでLinux上から実行します。
+普段は`zig run main.zig`、観察時は先にbinaryを生成します。
 
 ```sh
-zig build
-strace -f -tt -T -o trace.log ./zig-out/bin/lab-09
-strace -f -c ./zig-out/bin/lab-09
+zig build-exe main.zig
+strace -f -tt -T -o trace.log ./main
+strace -f -c ./main
 ```
 
-serverは別terminalでclientを接続し、終了後の集計を読みます。cat/cp章はCLI引数を末尾に付けます。
+引数がある課題は`./main`の後に付けます。serverは別terminalでclientを接続し、終了後の集計を読みます。
+`zig run`自体をtraceするとcompilerとlinkerのsyscallが混ざるため、学習対象binaryだけを観測します。
 どのsyscallが呼ばれたか、何回か、どこでblockingしたかを予想と比較してください。
-ランタイム初期化のsyscallと自分の処理を区別します。[観察手順](../docs/debugging.md)。
+program初期化と自分の処理の違いも調べます。[観察手順](../docs/debugging.md)。
 
 ## よくある失敗
 
@@ -64,18 +122,39 @@ tailだけ進める／CQE.resの負errnoをusizeにcast／volatileだけで順�
 
 ## ヒント
 
+### Hint 1
+
+まず上のman pageで操作の契約を調べ、1 fd・1 byte・1 operationへ縮小します。
+
+<details>
+<summary>Hint 2</summary>
+
+調べるsource: `os/linux.zig、os/linux/io_uring.zig、os/linux/IoUring.zig`。API名は「Zigからどう見えるか」を参照し、宣言を探します。
+
+</details>
+
+<details>
+<summary>Hint 3</summary>
+
 extern/packed ABIはstdlib定義を使う。alignmentを保証する。volatileはatomicの代わりではない。acquire/releaseの対応を説明する。
-答えのloopは用意していません。困ったら1 fd、1 byte、1 operationに縮小します。
+関数シグネチャと成功/失敗時の状態をsourceで確認し、自分の所有権の図と照合してください。
+
+</details>
 
 ## 完了条件
 
-NOPのuser_dataとres=0を確認し、満杯・wraparound・cleanupの試験を追加する。
-`zig build test`は未実装時SKIP。実装後はSKIPを残さず自作unit testと`test/README.md`の挙動検査を実行します。
+NOPのuser_data=42とres=0を確認し、満杯・wraparound・mapping解放の根拠を説明できる。
+コードとnotes.mdへ入力・予想・実測・差の理由を残します。コンパイル成功だけを学習完了にはしません。
 
 ## 発展課題
 
 stdlib IoUringの実装と自作mappingを比較。SQPOLLは追加実験に留める。
-別runで`perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./zig-out/bin/lab-09`も試します。
+必要なら別runで生成binaryを測定します。
+
+```sh
+zig build-exe -O ReleaseFast main.zig
+perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./main
+```
 
 ## 次章への問い
 
@@ -113,7 +192,7 @@ CQEはuser_dataで要求へ対応し、resとflagsで結果を解釈します。
 最初はSQPOLL・IOPOLL・registered buffer・multishotを使いません。NOPで転送bufferの複雑さを除きます。
 setupが成功してもopcodeが利用可能とは限りません。kernel featureとprobeを区別します。
 
-## ringの不変条件をtestする
+## ringの不変条件を実験する
 
 - indexは`counter & mask`。counter自体をmaskした値だけで保持しない。
 - occupancyはwrapping subtraction。満杯時に未消費entryを上書きしない。

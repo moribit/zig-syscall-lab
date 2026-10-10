@@ -16,3 +16,14 @@ Zigは0.17.0の同梱sourceを基準にします。masterのsourceを混ぜま�
 - [liburing man source](https://git.kernel.dk/cgit/liburing/tree/man)（概念と契約の参考のみ。リンク・依存・実装利用はしない）
 
 API照合のファイルと宣言は[確認ノート](api-audit.md)。man pageのkernel feature記述と手元kernelの対応を比べます。
+
+## 標準環境の一次資料
+
+- [OrbStack Linux machines](https://docs.orbstack.dev/machines/)
+- [OrbStack distros](https://docs.orbstack.dev/machines/distros)
+- [OrbStack commands](https://docs.orbstack.dev/machines/commands)
+- [Arch Linux ARM packages](https://archlinuxarm.org/packages)
+- [Arch Linux man-pages package](https://archlinux.org/packages/core/any/man-pages/)
+
+package名と確認時点のZig versionは[環境手順](arch-orbstack.md)に記載しています。
+manとstdlibを読む際は、手元kernelとZig 0.17.0同梱sourceの差を記録してください。

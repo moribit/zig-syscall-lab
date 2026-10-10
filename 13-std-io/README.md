@@ -1,5 +1,15 @@
 # Chapter 13: Zig std.Io
 
+## この章で作るもの
+
+自分で以下のファイルを作成します。
+
+```text
+main.zig
+```
+
+この教材からソースコードは提供しません。
+
 ## この章で学ぶこと
 
 Io依存注入、Threaded、init.io、backend。
@@ -26,18 +36,69 @@ Ioはuserspaceのinterfaceです。選択backendがsyscallやworkerを使い、�
 `std.process.Init.io、std.Io.Threaded.init/deinit/io、std.Io.File`。正確な宣言は[API確認ノート](../docs/api-audit.md)とZig 0.17.0同梱sourceを参照。
 生`std.os.linux`の返却値はerror unionではありません。`linux.errno(rc)`で成功を判定してからfd/長さへ変換します。
 
+## stdlibを読む
+
+`zig version`が0.17.0であることを確認し、`zig env`のstd_dirをeditorで開きます。
+今回読むsource: `Io.zig、process.zig、Io/Threaded.zig、Io/File.zig`。
+関数の型、error set、Linux固有か、libcを経由するか、syscallへどう降りるかを調べてください。
+宣言の引数を教材から埋めず、pointer/slice/alignmentをsourceから判断します。
+[API確認ノート](../docs/api-audit.md)はsourceを探す索引です。
+
+## man pageを読む
+
+実装前にLinuxで以下を読みます。
+
+```sh
+man 2 read
+man 2 write
+man 2 futex
+```
+
+戻り値、0の意味、失敗時のerrno、EINTR、短い転送または待機条件を確認します。
+manのC APIの-1/errnoとZig生syscallの返却値を混同しないでください。
+章固有のflags・resource寿命も確認し、sourceのwrapperが何を変換するか説明します。
+ページが未導入なら[一次資料](../docs/references.md)のmanリンクも参照してください。
+
 ## 実装課題
 
 init.ioを受け取るfile readerを実装し、allocatorとioを引数に渡す関数へ分離。次にThreadedを明示生成し差を観察する。
 
 ## 実装手順
 
-1. 入出力契約と所有権を紙に書き、syscall順を予想する。
-2. mainにstd.process.Init→io取得→関数へ引渡し→File/Dir API source確認→Threaded lifecycle比較。
-3. 正常系を動かした後、短い転送・切断・失敗を加える。
-4. `test/contract.zig`のTODOへ自分の状態管理のunit testを追加する。
+1. mainの引数にstd.process.Initを受け取る設計をsourceから調べる。
+2. init.ioを取得し、file操作を自分で書く。
+3. allocatorとioを引数へ渡す関数を設計する。
+4. cat PATHを実装し、自作raw版と同じbyteになるか比較する。
+5. Threadedを明示init/deinitする別実験を行い、io利用期間をbackend寿命内に収める。
+6. vtableからOS backendへ追い、traceで実際の待機経路を確認する。
 
-starterは未実装です。`implemented`をtrueにするだけでは完了ではありません。
+## 実行
+
+前章と同様に、自分でmain.zigを作成してください。まず単一fileで書きます。
+
+```sh
+touch main.zig
+$EDITOR main.zig
+zig run main.zig
+```
+
+$EDITORは事前に設定したeditor名です（例: nvim）。コンパイラエラーも教材の一部です。
+型、error union、optional、integer cast、pointer、alignment、sliceの要求を読み、修正して再実行します。
+引数がある課題は`zig run main.zig -- 引数`で渡します。
+
+## 手動で確認
+
+CLIをcat PATHとして自分で定義します。
+
+```sh
+printf 'std Io\n' > input.txt
+zig run main.zig -- cat input.txt
+zig build-exe main.zig
+./main cat input.txt > output.txt
+cmp input.txt output.txt
+```
+
+init.ioと明示Threadedの二つの実験で、同じfile内容と異なるsyscall経路を比べます。
 
 ## 観察ポイント
 
@@ -46,17 +107,18 @@ std.Ioを使っただけで全I/Oがio_uringになると予想せずtraceでback
 
 ## straceで確認
 
-章ディレクトリでLinux上から実行します。
+普段は`zig run main.zig`、観察時は先にbinaryを生成します。
 
 ```sh
-zig build
-strace -f -tt -T -o trace.log ./zig-out/bin/lab-13
-strace -f -c ./zig-out/bin/lab-13
+zig build-exe main.zig
+strace -f -tt -T -o trace.log ./main cat input.txt
+strace -f -c ./main cat input.txt
 ```
 
-serverは別terminalでclientを接続し、終了後の集計を読みます。cat/cp章はCLI引数を末尾に付けます。
+引数がある課題は`./main`の後に付けます。serverは別terminalでclientを接続し、終了後の集計を読みます。
+`zig run`自体をtraceするとcompilerとlinkerのsyscallが混ざるため、学習対象binaryだけを観測します。
 どのsyscallが呼ばれたか、何回か、どこでblockingしたかを予想と比較してください。
-ランタイム初期化のsyscallと自分の処理を区別します。[観察手順](../docs/debugging.md)。
+program初期化と自分の処理の違いも調べます。[観察手順](../docs/debugging.md)。
 
 ## よくある失敗
 
@@ -64,18 +126,39 @@ serverは別terminalでclientを接続し、終了後の集計を読みます。
 
 ## ヒント
 
+### Hint 1
+
+まず上のman pageで操作の契約を調べ、1 fd・1 byte・1 operationへ縮小します。
+
+<details>
+<summary>Hint 2</summary>
+
+調べるsource: `Io.zig、process.zig、Io/Threaded.zig、Io/File.zig`。API名は「Zigからどう見えるか」を参照し、宣言を探します。
+
+</details>
+
+<details>
+<summary>Hint 3</summary>
+
 fn foo(allocator: std.mem.Allocator, io: std.Io) !void の依存を考える。allocation/control flowはsourceとtraceから追う。
-答えのloopは用意していません。困ったら1 fd、1 byte、1 operationに縮小します。
+関数シグネチャと成功/失敗時の状態をsourceで確認し、自分の所有権の図と照合してください。
+
+</details>
 
 ## 完了条件
 
-DI関数とcat仕様が動き、自作loopとの責務対応表ができる。
-`zig build test`は未実装時SKIP。実装後はSKIPを残さず自作unit testと`test/README.md`の挙動検査を実行します。
+catのbyteが一致し、Io/allocator依存注入とThreadedの寿命を自作loopと比較できる。
+コードとnotes.mdへ入力・予想・実測・差の理由を残します。コンパイル成功だけを学習完了にはしません。
 
 ## 発展課題
 
 Eventedはfiber対応とOS条件でvoidにもなる。LinuxではUring aliasであることをsourceで確認し、利用可能なら比較する。
-別runで`perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./zig-out/bin/lab-13`も試します。
+必要なら別runで生成binaryを測定します。
+
+```sh
+zig build-exe -O ReleaseFast main.zig
+perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./main
+```
 
 ## 次章への問い
 

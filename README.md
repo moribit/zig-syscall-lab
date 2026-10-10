@@ -2,79 +2,133 @@
 
 ## Why this repository exists
 
-OSとユーザー空間の境界を、予想・実装・syscall観測から学ぶZig 0.17.0の教材です。
-完成サンプル集ではありません。全starterは未実装で、解答コード・外部Zig package・liburing依存はありません。
+Zig 0.17.0でLinux低レベルI/Oを、予想・手書き・syscall観測から学ぶ教材です。
+clone直後の章にはMarkdownだけがあります。import、main、OS API利用も含めて自分でファイルを生み出します。
+教材に答えの実装は存在しません。外部Zig packageやliburingにも依存しません。
 
 ## Learning philosophy
 
-学習者がコードを書きます。短い転送、切断、所有権、待機地点を自分で説明できることを成果とします。
-Zigのerror union、defer、allocator、comptimeはOSの問題を扱う道具として登場します。
+意図的にbuild.zigを使用しません。1章1ファイル程度の小さなprogramを扱い、
+コンパイラを直接使う感覚と短いフィードバックループを重視します。build systemを学習ノイズにせず、OS APIへ集中します。
+まずベタ書きし、理解して重複に気付いてから抽象化します。便利なhelperや整った構成を先に作りません。
+
+```text
+README → main.zigを自分で作る → zig run main.zig
+       → エラーを読む・修正 → binary生成 → strace → 問いに答える
+```
 
 ## Roadmap
 
-章番号はテーマの識別子です。学習順は **01→02→03→04→05→06→07→08→12→09→10→11→13→14→15→16→capstone**。
-12章のevent loopをio_uringより先に行います。[ロードマップ](docs/roadmap.md)。
+**01→02→03→04→05→06→07→08→12→09→10→11→13→14→15→16→capstone**。
+章番号はテーマの識別子です。12章のevent loopを09章のio_uringより先に実施します。
+[ロードマップ](docs/roadmap.md)で章間の疑問を確認してください。
 
 ## Requirements
 
-- Zig **0.17.0**（dev版やmaster版ではなく、このversionのstdlibを読む）
-- 実験環境: Linux x86_64 / aarch64。starterのbuild/testはmacOSでも可能
-- syscall観測: strace。追加の挙動検査・負荷生成: Python 3標準ライブラリのみ
-- perf、pidstat、ss、time、hyperfine等は任意。外部benchmark toolは必須依存にしない
+- Zig **0.17.0**。dev/masterや別versionのAPIを混ぜない
+- 標準環境: **M2 MacBook Air → OrbStack → Arch Linux ARM64 (aarch64)**
+- Linux x86_64実機や別VMでも学習可能。epoll/io_uring/strace実験はLinuxで実施
+- strace、man、editor。nc/socatはsocket実験、perf等は任意
 
 ## Linux setup
 
-LinuxでZigを[公式配布](https://ziglang.org/download/0.17.0/)から用意し、`zig version`を確認します。
-Debian/Ubuntuなら`sudo apt install strace python3`、perf等は必要な時だけ導入します。
-macOSではLima、UTM、Linux VM、Docker/Podman、remote Linuxを使えます。
-VM内でrepoをclone/共有しLinux版Zigでbuildしてください。macOS binaryをLinuxへコピーしても動きません。
-containerはホストのLinux kernelを共有し、macOSのcontainer実行環境にはLinux VMが入ります。
-io_uringはkernel version、sysctl、seccomp、resource制限により利用できない場合があります。
-`EPERM/ENOSYS/EOPNOTSUPP`を記録し、利用可能なLinux VM/remote環境へ移る選択もあります。
-詳しくは[Linux I/O](docs/linux-io-overview.md)。
+macOSでOrbStackを導入後、Linux machineを作ります。
+Arch対応とCLI形式は[対応distro](https://docs.orbstack.dev/machines/distros)と
+[OrbStack commands](https://docs.orbstack.dev/machines/commands)で確認できます。
+
+```sh
+orb create arch zig-syscall-lab
+orb -m zig-syscall-lab
+uname -m
+```
+
+M2ではARM64環境を使い、unameがaarch64か確認します。以後のコマンドはLinux shell内で実行します。
+
+```sh
+sudo pacman -Syu
+pacman -Si strace man-db man-pages neovim socat openbsd-netcat git
+sudo pacman -S strace man-db man-pages neovim socat openbsd-netcat git
+```
+
+package名の一次資料、追加tool、Zigの導入は[Arch + OrbStack環境手順](docs/arch-orbstack.md)。
+Archはrolling releaseです。[公開ARM packageのzig](https://archlinuxarm.org/packages/aarch64/zig)は確認時点で0.16.0-1なので、
+**pacmanでzigを入れれば0.17.0になるとは仮定しません**。
+[Zig公式0.17.0配布](https://ziglang.org/download/0.17.0/)のaarch64-linux版を利用し、`zig version`で0.17.0を確認します。
+
+```sh
+git clone https://github.com/moribit/zig-syscall-lab.git
+cd zig-syscall-lab/01-file-descriptor
+export EDITOR=nvim
+touch main.zig
+$EDITOR main.zig
+```
+
+コード編集、コンパイル、実行、straceを同じLinux環境で行うと、OS/architectureとpathの混乱を減らせます。
+macOS editorを使う場合も、compileと観測はLinux shell内で行います。
+io_uringの利用可否はkernel、policy、resource制限と返却errnoで確認してください。
+VMのperf countersには制約もあります。[Linux I/O](docs/linux-io-overview.md)。
 
 ## How to study
 
-1. 章READMEを読む。
-2. コードを書かず図と所有権を理解する。
-3. syscallと返却値を予想してnotes.mdへ書く。
-4. 自分で最小ケースを実装する。
-5. straceする。
-6. 予想との差とblocking地点を説明する。
-7. 発展課題を行い、次章への問いに答える。
+1. READMEを読み、図・所有権・syscallの予想をnotes.mdへ書く。
+2. main.zigを作る。
+3. importとmainから自分でコードを書く。
+4. `zig run main.zig`で実行する。
+5. エラーを読む。
+6. 修正して再実行する。
+7. `zig build-exe main.zig`で観測用binaryを生成する。
+8. Linuxで`strace ./main`を実行する。
+9. 予想との差とREADMEの問いに答える。
+10. 次章へ進む。
+
+最初から正しいコードを書く必要はありません。コンパイラエラーも教材の一部です。
+error union、optional、integer cast、pointer型、alignment、sliceのexpected/foundを読み、
+stdlibの宣言と比較して修正します。これらのエラーを隠すhelperは提供しません。
+
+## Zig CLIを使い分ける
+
+普段の試行錯誤は、その章のディレクトリで実行します。
 
 ```sh
-zig build
-zig build test --summary all
-zig build chapter -Dchapter=06
-zig build test -Dchapter=06
-cd 01-file-descriptor
-zig build
-zig build test --summary all
+zig run main.zig
 ```
 
-root buildは17のstarterをcompile/installします。rootのtestは17の契約testを実行し、未実装時はSKIPです。
-選択buildでは`zig-out/bin/lab-06`のような名前になります。cross compile例:
-`zig build -Dtarget=x86_64-linux` / `zig build -Dtarget=aarch64-linux`。
-cross compileしたtestはそのLinux target上で実行します。native macOSのSKIPはLinux動作検証を意味しません。
-実装前のbinaryは`error.NotImplemented`で終了します。学習完了はbuild成功やSKIPではなく章の完了条件で判定します。
-
-## Do not copy code
-
-完成実装は置きません。stdlibは契約・ABI・wrapperの処理を読むために使い、アプリのloopは自分で設計します。
-`implemented = true`に変更するとtestは`MissingContractTests`で失敗します。
-章の状態管理を検証するassertionを追加し、そのTODOを置き換えてください。
-[外部仕様検査](tools/README.md)は実装の答えを含まず、実行結果を検査します。
-
-## How to use strace
+プログラム引数は`zig run main.zig -- 引数`で渡します。
+compileだけを行い、後から実行するときは以下です。
 
 ```sh
-strace -f -tt -T -o trace.log ./zig-out/bin/lab-01
-strace -f -c ./zig-out/bin/lab-01
+zig build-exe main.zig
+./main
 ```
 
-実装後にLinuxで使います。`-T`でsyscall内の経過時間、`-c`で回数を確認します。
-[debugging](docs/debugging.md)に待機・割込・trace負荷の読み方があります。
+通常の出力名はmainです。cat.zig/cp.zigなどを自分で作った場合はbinary名も変わります。
+必要なら`-femit-bin=cat`のように明示できます。ZigのsourceはGit管理し、生成binaryは管理しません。
+
+## How to use strace / perf
+
+```sh
+zig build-exe main.zig
+strace -f -tt -T -o trace.log ./main
+strace -f -c ./main
+```
+
+`zig run`自体をstraceするとcompiler・linker・学習対象programのsyscallが混ざります。
+先にbinaryを作り、学習対象だけを観測してください。回数、返却値、fd、blocking地点を予想と比較します。
+
+```sh
+zig build-exe -O ReleaseFast main.zig
+perf stat ./main
+```
+
+perfも生成binaryを対象にします。DebugとReleaseFastの違い、観測負荷、VM countersは16章で扱います。
+詳しい読み方は[debugging](docs/debugging.md)。
+
+## 自分のコードを履歴にする
+
+学習後はmain.zig、必要になって作ったconnection.zig、notes.mdをそのままcommitして構いません。
+初期状態はREADMEのみ、学習後は自作sourceと実験記録が加わり、repoが自分の学習履歴になります。
+.gitignoreはmain等の生成binary、object、cache、trace/perfデータを除外し、.zig fileは除外しません。
+入力fixtureや測定レポートを残すかは自分で決めます。自動検査の成功印より、manual experimentと観測を重視します。
 
 ## Chapters
 
@@ -97,8 +151,10 @@ strace -f -c ./zig-out/bin/lab-01
 | [15 Reactor vs Proactor](15-reactor-proactor/README.md) | 同一仕様の比較、comptime backend |
 | [16 Benchmark](16-benchmark/README.md) | throughput、p50/p95/p99、CPU/RSS、syscall、context switch |
 
+
 最後に[capstone](capstone/README.md)でbackend選択と設計レポートを提出します。
 
 ## References
 
-[検証記録](docs/verification.md)、[一次資料](docs/references.md)、[API source確認](docs/api-audit.md)、[用語集](docs/glossary.md)。
+[一次資料](docs/references.md)、[API source索引](docs/api-audit.md)、[用語集](docs/glossary.md)、
+[改修後の確認記録](docs/verification.md)。各章でLinux man pagesと同梱stdlib sourceを読みます。

@@ -1,15 +1,28 @@
-# Zig build caches and installed artifacts (root and chapters)
+# Zig compiler caches and generated output directories
 .zig-cache/
 zig-cache/
 zig-out/
 
-# Python bytecode
-__pycache__/
-*.py[cod]
+# Executables named after the chapter exercises (at any depth)
+main
+main-*
+cat
+cp
+server
+client
+benchmark
+*.o
+*.obj
+*.exe
+*.pdb
 
-# Local syscall observation logs
+# Local syscall and perf observations
 trace*.log
+perf.data
+perf.data.*
 
-# macOS metadata
+# Editor swap files and macOS metadata
+*.swp
+*.swo
 .DS_Store
 ._*

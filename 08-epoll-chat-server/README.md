@@ -1,5 +1,15 @@
 # Chapter 08: epoll Chat Server
 
+## この章で作るもの
+
+自分で以下のファイルを作成します。
+
+```text
+main.zig
+```
+
+この教材からソースコードは提供しません。
+
 ## この章で学ぶこと
 
 backpressure、slow client、broadcast、lifecycle。
@@ -26,18 +36,64 @@ kernel送信queueが詰まるとsendは短くなるかEAGAINになります。us
 `allocator、optional、tagged unionとLinux epoll`。正確な宣言は[API確認ノート](../docs/api-audit.md)とZig 0.17.0同梱sourceを参照。
 生`std.os.linux`の返却値はerror unionではありません。`linux.errno(rc)`で成功を判定してからfd/長さへ変換します。
 
+## stdlibを読む
+
+`zig version`が0.17.0であることを確認し、`zig env`のstd_dirをeditorで開きます。
+今回読むsource: `os/linux.zigのsendtoとepoll_ctl`。
+関数の型、error set、Linux固有か、libcを経由するか、syscallへどう降りるかを調べてください。
+宣言の引数を教材から埋めず、pointer/slice/alignmentをsourceから判断します。
+[API確認ノート](../docs/api-audit.md)はsourceを探す索引です。
+
+## man pageを読む
+
+実装前にLinuxで以下を読みます。
+
+```sh
+man 7 epoll
+man 2 send
+man 7 tcp
+```
+
+戻り値、0の意味、失敗時のerrno、EINTR、短い転送または待機条件を確認します。
+manのC APIの-1/errnoとZig生syscallの返却値を混同しないでください。
+章固有のflags・resource寿命も確認し、sourceのwrapperが何を変換するか説明します。
+ページが未導入なら[一次資料](../docs/references.md)のmanリンクも参照してください。
+
 ## 実装課題
 
 newline区切り、最大4096 byteのmessageを他clientだけへbroadcast。未送信queue上限64KiBで遅いclientを切断する。
 
 ## 実装手順
 
-1. 入出力契約と所有権を紙に書き、syscall順を予想する。
-2. byte streamからframe組立→長さ制限→各receiverへenqueue→OUT切替→flush→EOF/overflow時cleanup。
-3. 正常系を動かした後、短い転送・切断・失敗を加える。
-4. `test/contract.zig`のTODOへ自分の状態管理のunit testを追加する。
+1. echoの経験からmain.zigへnewline frameの組立を自分で書く。
+2. 最大frame4096 byte、per-client未送信queue64KiBと仕様を決める。
+3. 送信者以外のconnectionへbroadcastし、receiverごとに送信進捗を持つ。
+4. queueが空でない間だけOUTを登録する。
+5. queue上限を超えるslow clientだけを切断する。
+6. 受信fragment、切断中のbroadcast、message所有権を観測する。
+7. 責務の重複が見えてからfile分割を検討する。
 
-starterは未実装です。`implemented`をtrueにするだけでは完了ではありません。
+## 実行
+
+前章と同様に、自分でmain.zigを作成してください。まず単一fileで書きます。
+
+```sh
+touch main.zig
+$EDITOR main.zig
+zig run main.zig
+```
+
+$EDITORは事前に設定したeditor名です（例: nvim）。コンパイラエラーも教材の一部です。
+型、error union、optional、integer cast、pointer、alignment、sliceの要求を読み、修正して再実行します。
+引数がある課題は`zig run main.zig -- 引数`で渡します。
+
+## 手動で確認
+
+Terminal Aで`zig run main.zig`、別の3 terminalで`nc 127.0.0.1 9000`。
+一人の入力が他二人だけへ届くかを確認します。入力を数回に分け、newlineまでframeが完成しないことを確認します。
+次に受信を読まないclientを用意し、broadcastを続けます。
+一時的にqueue上限を小さくし、slow clientだけが切断され、他clientとRSSが安定するか記録します。
+単なるidle senderはslow receiverの再現にはならないので、receiverの読取を停止してください。
 
 ## 観察ポイント
 
@@ -46,17 +102,18 @@ starterは未実装です。`implemented`をtrueにするだけでは完了で�
 
 ## straceで確認
 
-章ディレクトリでLinux上から実行します。
+普段は`zig run main.zig`、観察時は先にbinaryを生成します。
 
 ```sh
-zig build
-strace -f -tt -T -o trace.log ./zig-out/bin/lab-08
-strace -f -c ./zig-out/bin/lab-08
+zig build-exe main.zig
+strace -f -tt -T -o trace.log ./main
+strace -f -c ./main
 ```
 
-serverは別terminalでclientを接続し、終了後の集計を読みます。cat/cp章はCLI引数を末尾に付けます。
+引数がある課題は`./main`の後に付けます。serverは別terminalでclientを接続し、終了後の集計を読みます。
+`zig run`自体をtraceするとcompilerとlinkerのsyscallが混ざるため、学習対象binaryだけを観測します。
 どのsyscallが呼ばれたか、何回か、どこでblockingしたかを予想と比較してください。
-ランタイム初期化のsyscallと自分の処理を区別します。[観察手順](../docs/debugging.md)。
+program初期化と自分の処理の違いも調べます。[観察手順](../docs/debugging.md)。
 
 ## よくある失敗
 
@@ -64,19 +121,46 @@ serverは別terminalでclientを接続し、終了後の集計を読みます。
 
 ## ヒント
 
+### Hint 1
+
+まず上のman pageで操作の契約を調べ、1 fd・1 byte・1 operationへ縮小します。
+
+<details>
+<summary>Hint 2</summary>
+
+調べるsource: `os/linux.zigのsendtoとepoll_ctl`。API名は「Zigからどう見えるか」を参照し、宣言を探します。
+
+</details>
+
+<details>
+<summary>Hint 3</summary>
+
 共有messageを使うなら参照数、copyなら各queueの所有権と費用を示す。まず明確なcopy方式を選んでもよい。
-答えのloopは用意していません。困ったら1 fd、1 byte、1 operationに縮小します。
+関数シグネチャと成功/失敗時の状態をsourceで確認し、自分の所有権の図と照合してください。
+
+</details>
 
 ## 完了条件
 
-tools/check.py chatが通り、slow client切断とqueue上限の追加試験を提出する。
-`zig build test`は未実装時SKIP。実装後はSKIPを残さず自作unit testと`test/README.md`の挙動検査を実行します。
+3 clientのbroadcast、分割frame、slow client切断を確認し、queue上限と所有権を説明できる。
+コードとnotes.mdへ入力・予想・実測・差の理由を残します。コンパイル成功だけを学習完了にはしません。
 
 ## 発展課題
 
 high/low watermarkで入力をpause/resumeする別方針を比較する。
-別runで`perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./zig-out/bin/lab-08`も試します。
+必要なら別runで生成binaryを測定します。
+
+```sh
+zig build-exe -O ReleaseFast main.zig
+perf stat -e context-switches,cpu-migrations,page-faults,cycles,instructions ./main
+```
 
 ## 次章への問い
 
 > dispatchの共通部分をOS APIから分離できますか？ 次は12章です。
+
+## ファイル分割を考える
+
+ここまで単一ファイルで実装しました。分割した方が良い責務はありますか？
+connection.zigやevent_loop.zigを自分で作る場合も、まず重複とownershipの境界を説明してください。
+最初からSocketやConnectionManagerのhelperを置かず、ベタ書き→理解→重複→抽象化の順に進めます。

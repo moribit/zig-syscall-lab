@@ -1,35 +1,33 @@
-# 教材構造の検証記録
+# 単一ファイル教材への改修確認
 
-2026-10-10 / Zig 0.17.0 / aarch64-macos。
-この記録は未実装starterと教材の検証で、学習者の完成実装の動作保証ではありません。
+確認日: 2026-10-10。教材の初期状態を対象にした文書・構造監査です。
+17章の構成・必須導線・ヒント段階・local link・code fenceを監査し、全て成功しました。
+生成物のignoreと自作Zig sourceがignoreされないこと、差分の空白検査も確認済みです。
+学習者がこれから書くprogramのLinux動作検証とは区別します。
 
-| 検査 | 結果 |
+| 確認項目 | 改修後の状態 |
 |---|---|
-| root zig build | 成功、17 starterをcompile/install |
-| root zig build test --summary all | 成功、17件SKIP、pass 0件 |
-| zig build chapter -Dchapter=06 | 成功、選択chapterをinstall |
-| 全16章 + capstoneの単独zig build test | 全て成功、各1件SKIP |
-| root -Dtarget=x86_64-linux | cross build成功 |
-| root -Dtarget=aarch64-linux | cross build成功 |
-| tools/api-check.zigのnative test | 1件pass |
-| 同probe Linux x86_64/aarch64 -fno-emit-bin | compile成功（Linux実行なし） |
-| Python toolsのpy_compile | 成功 |
-| check.pyで未実装catを検査 | 意図したFAIL/nonzero |
-| bench.pyで接続不可portを検査 | success=0/errors=1/nonzero、percentile=null |
-| required見出し、starter未実装、local文書link | 全17章で確認 |
+| root / chapterのbuild定義 | すべて削除 |
+| 章内の提供Zig source | 0件。16章とcapstoneはREADMEのみ |
+| 自動test・API probe・配布helper | 削除。検証内容は手動実験としてREADMEへ記載 |
+| 旧project構成への実行指示 | 削除。main.zigを自分で作る方式へ統一 |
+| 基本CLI | 全章にtouch / editor / zig run main.zig |
+| syscall観測 | compile-onlyのzig build-exe後、strace ./main |
+| perf | ReleaseFastの生成binaryを対象 |
+| ヒント | 全章にHint 1、details内のHint 2/3。完成コードなし |
+| 一次資料 | 全章にstdlib sourceとLinux man pageの読解課題 |
+| file分割 | chat/event loop以後に学習者が判断 |
+| 標準環境 | M2 + OrbStack + Arch Linux ARM64、package名は一次資料で確認 |
+| Git管理 | sourceは管理可能。binary/object/cache/trace/perfはignore |
 
-cache書込みを許可領域に収めるため、検証時は`ZIG_GLOBAL_CACHE_DIR=/tmp/zig-io-lab-global`と
-`--cache-dir /tmp/zig-io-lab-cache`等を指定しました。cross build出力も/tmpへ配置しました。
-通常の学習コマンドはroot READMEに記載しています。
+旧Zig APIの混入を避けるため、同梱Zig 0.17.0 sourceのread/openat/poll、Linux epoll/eventfd/io_uring、
+Ioのasync/concurrent/Group宣言を再確認しました。[API source索引](api-audit.md)。
+公開Arch ARM zig packageは0.16.0-1だったため、公式0.17.0配布を使う手順を記載しています。
 
-## 今後Linux上で行う検証
+## 実行検証の範囲
 
-- 学習者実装のsyscall trace、fd/RSS leak、signal/EINTR、partial I/O
-- LT/ET実験、eventfd wake race、stale token
-- io_uringのmapping、NOP、CQEと各opcodeのfeature確認
-- normal echo/chatに対する外部検査の実機実行
-- std.Io backendとcancel pointの動作、task scope終了時cleanup
-- 公平なbenchmark（失敗数・負荷生成器bottleneck・環境条件込み）
+この改修で学習対象のZig programは作成していません。Linuxのsyscall、ring、serverの実行は学習者の課題です。
+OrbStack CLIはこの作業環境のfilesystem制限で初期化できず、machine内のpackage installと手動実験は実行していません。
+OrbStackの操作形式とpackage名は[環境手順](arch-orbstack.md)の一次資料で照合しています。
 
-完成server/file copierは意図的に未実装です。test TODOやSKIPは教材の余白であり解答を追加しません。
-より発展的なmultishot、registered buffer、zero-copyは発展課題です。
+各章READMEのコマンドは、自作実装後にLinux shell内で実行してください。
